@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mortgage Affordability Calculator</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+:root{
+  --bg:#f4f7fb;
+  --card:#ffffff;
+  --primary:#2563eb;
+  --success:#16a34a;
+  --warning:#d97706;
+  --danger:#dc2626;
+  --text:#0f172a;
+  --muted:#64748b;
+  --border:#e5e7eb;
+  --radius:16px;
+  --shadow:0 20px 40px rgba(0,0,0,.08);
+}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  font-family:Inter,system-ui,Arial;
+  background:var(--bg);
+  color:var(--text);
+}
+.container{
+  max-width:1200px;
+  margin:auto;
+  padding:20px;
+}
+h1{
+  text-align:center;
+  color:var(--primary);
+  margin-bottom:24px;
+}
+.grid{
+  display:grid;
+  grid-template-columns:1fr 1.3fr;
+  gap:24px;
+}
+@media(max-width:900px){
+  .grid{grid-template-columns:1fr}
+}
+.card{
+  background:var(--card);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  padding:24px;
+}
+label{
+  display:block;
+  margin-top:14px;
+  font-size:14px;
+}
+input,select{
+  width:100%;
+  padding:12px;
+  margin-top:6px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  font-size:15px;
+}
+button{
+  width:100%;
+  padding:14px;
+  margin-top:16px;
+  border:none;
+  border-radius:12px;
+  font-size:16px;
+  cursor:pointer;
+}
+.primary{
+  background:var(--primary);
+  color:#fff;
+}
+.secondary{
+  background:#eef2ff;
+  color:var(--primary);
+}
+.stats{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:14px;
+}
+@media(max-width:900px){
+  .stats{grid-template-columns:1fr 1fr}
+}
+.stat{
+  background:#f8fafc;
+  border-radius:12px;
+  padding:14px;
+  text-align:center;
+}
+.stat h3{
+  margin:0;
+  font-size:20px;
+  color:var(--primary);
+}
+.stat p{
+  margin:4px 0 0;
+  font-size:13px;
+  color:var(--muted);
+}
+.status{
+  margin-top:14px;
+  padding:14px;
+  border-radius:12px;
+  font-weight:600;
+  text-align:center;
+}
+.good{background:#dcfce7;color:var(--success)}
+.warn{background:#fef3c7;color:var(--warning)}
+.bad{background:#fee2e2;color:var(--danger)}
+canvas{margin-top:24px}
+@media print{
+  body *{visibility:hidden}
+  #printArea, #printArea *{visibility:visible}
+  #printArea{position:absolute;top:0;left:0;width:100%}
+  button{display:none}
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+<h1>Mortgage Affordability Calculator</h1>
+
+<div class="grid">
+
+<!-- INPUT -->
+<div class="card">
+<label>Annual Income</label>
+<input id="income" value="85000">
+
+<label>Monthly Debts (loans, credit cards)</label>
+<input id="debts" value="600">
+
+<label>Down Payment</label>
+<input id="down" value="30000">
+
+<label>Interest Rate (%)</label>
+<input id="rate" value="6.5">
+
+<label>Loan Term (Years)</label>
+<input id="years" value="30">
+
+<label>Estimated Property Tax (Monthly)</label>
+<input id="tax" value="250">
+
+<label>Home Insurance (Monthly)</label>
+<input id="insurance" value="120">
+
+<label>Currency</label>
+<select id="currency">
+  <option value="$">USD ($)</option>
+  <option value="€">EUR (€)</option>
+  <option value="£">GBP (£)</option>
+  <option value="₹">INR (₹)</option>
+  <option value="C$">CAD (C$)</option>
+  <option value="A$">AUD (A$)</option>
+</select>
+
+<button class="primary" onclick="calculate()">Calculate Affordability</button>
+<button class="secondary" onclick="clearAll()">Clear</button>
+</div>
+
+<!-- OUTPUT -->
+<div class="card" id="printArea">
+
+<div class="stats">
+  <div class="stat">
+    <h3 id="homePrice">—</h3>
+    <p>Affordable Home Price</p>
+  </div>
+  <div class="stat">
+    <h3 id="loanAmount">—</h3>
+    <p>Estimated Loan Amount</p>
+  </div>
+  <div class="stat">
+    <h3 id="payment">—</h3>
+    <p>Monthly Mortgage</p>
+  </div>
+  <div class="stat">
+    <h3 id="dti">—</h3>
+    <p>Debt-to-Income (DTI)</p>
+  </div>
+</div>
+
+<div id="decision" class="status"></div>
+
+<canvas id="chart"></canvas>
+
+<button class="secondary" onclick="window.print()">Print Report</button>
+
+</div>
+</div>
+</div>
+
+<script>
+let chart;
+
+function fmt(v){
+  return document.getElementById("currency").value +
+         Number(v).toLocaleString(undefined,{maximumFractionDigits:0});
+}
+
+function calculate(){
+  const income = +income.value / 12;
+  const debts = +debts.value;
+  const down = +down.value;
+  const rate = +rate.value / 100 / 12;
+  const years = +years.value * 12;
+  const tax = +tax.value;
+  const ins = +insurance.value;
+
+  const maxDTI = 0.36;
+  const maxHousing = income * 0.28;
+  const available = maxHousing - tax - ins;
+
+  const loan = available * (1 - Math.pow(1+rate, -years)) / rate;
+  const home = loan + down;
+
+  const totalDebt = debts + available;
+  const dtiVal = (totalDebt / income) * 100;
+
+  homePrice.innerText = fmt(home);
+  loanAmount.innerText = fmt(loan);
+  payment.innerText = fmt(available + tax + ins);
+  dti.innerText = dtiVal.toFixed(1) + "%";
+
+  if(dtiVal < 30){
+    decision.className="status good";
+    decision.innerText="Excellent affordability — strong approval chance";
+  }else if(dtiVal <= 36){
+    decision.className="status warn";
+    decision.innerText="Acceptable affordability — approval likely";
+  }else{
+    decision.className="status bad";
+    decision.innerText="High risk — consider lower home price";
+  }
+
+  if(chart)chart.destroy();
+  chart = new Chart(chart,{
+    type:"doughnut",
+    data:{
+      labels:["Mortgage","Other Debts","Remaining Income"],
+      datasets:[{
+        data:[available,debts,income-totalDebt],
+        backgroundColor:["#2563eb","#dc2626","#16a34a"]
+      }]
+    }
+  });
+}
+
+function clearAll(){
+  document.querySelectorAll("input").forEach(i=>i.value="");
+  document.querySelectorAll(".stat h3").forEach(e=>e.innerText="—");
+  decision.innerText="";
+  if(chart)chart.destroy();
+}
+</script>
+</body>
+</html>
