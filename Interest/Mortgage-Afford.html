@@ -65,6 +65,7 @@ input,select{
   border-radius:10px;
   font-size:15px;
 }
+input[type=range]{padding:0}
 button{
   width:100%;
   padding:14px;
@@ -107,7 +108,7 @@ button{
   color:var(--muted);
 }
 .status{
-  margin-top:14px;
+  margin-top:16px;
   padding:14px;
   border-radius:12px;
   font-weight:600;
@@ -116,6 +117,12 @@ button{
 .good{background:#dcfce7;color:var(--success)}
 .warn{background:#fef3c7;color:var(--warning)}
 .bad{background:#fee2e2;color:var(--danger)}
+.slider-box{
+  margin-top:16px;
+  background:#f8fafc;
+  padding:14px;
+  border-radius:12px;
+}
 canvas{margin-top:24px}
 @media print{
   body *{visibility:hidden}
@@ -137,7 +144,7 @@ canvas{margin-top:24px}
 <label>Annual Income</label>
 <input id="income" value="85000">
 
-<label>Monthly Debts (loans, credit cards)</label>
+<label>Monthly Debts</label>
 <input id="debts" value="600">
 
 <label>Down Payment</label>
@@ -149,7 +156,7 @@ canvas{margin-top:24px}
 <label>Loan Term (Years)</label>
 <input id="years" value="30">
 
-<label>Estimated Property Tax (Monthly)</label>
+<label>Property Tax (Monthly)</label>
 <input id="tax" value="250">
 
 <label>Home Insurance (Monthly)</label>
@@ -161,8 +168,6 @@ canvas{margin-top:24px}
   <option value="€">EUR (€)</option>
   <option value="£">GBP (£)</option>
   <option value="₹">INR (₹)</option>
-  <option value="C$">CAD (C$)</option>
-  <option value="A$">AUD (A$)</option>
 </select>
 
 <button class="primary" onclick="calculate()">Calculate Affordability</button>
@@ -173,22 +178,16 @@ canvas{margin-top:24px}
 <div class="card" id="printArea">
 
 <div class="stats">
-  <div class="stat">
-    <h3 id="homePrice">—</h3>
-    <p>Affordable Home Price</p>
-  </div>
-  <div class="stat">
-    <h3 id="loanAmount">—</h3>
-    <p>Estimated Loan Amount</p>
-  </div>
-  <div class="stat">
-    <h3 id="payment">—</h3>
-    <p>Monthly Mortgage</p>
-  </div>
-  <div class="stat">
-    <h3 id="dti">—</h3>
-    <p>Debt-to-Income (DTI)</p>
-  </div>
+  <div class="stat"><h3 id="homePrice">—</h3><p>Affordable Home Price</p></div>
+  <div class="stat"><h3 id="loanAmount">—</h3><p>Loan Amount</p></div>
+  <div class="stat"><h3 id="payment">—</h3><p>Monthly Mortgage</p></div>
+  <div class="stat"><h3 id="dti">—</h3><p>Debt-to-Income</p></div>
+</div>
+
+<div class="slider-box hidden" id="sliderBox">
+  <label>Adjust Home Price</label>
+  <input type="range" id="priceSlider">
+  <div style="text-align:center;font-weight:600" id="sliderValue"></div>
 </div>
 
 <div id="decision" class="status"></div>
@@ -202,65 +201,86 @@ canvas{margin-top:24px}
 </div>
 
 <script>
-let chart;
+let chart,currentLoan=0;
 
 function fmt(v){
-  return document.getElementById("currency").value +
-         Number(v).toLocaleString(undefined,{maximumFractionDigits:0});
+  return currency.value + Math.round(v).toLocaleString();
+}
+
+function emiCalc(P,r,n){
+  return P*r*Math.pow(1+r,n)/(Math.pow(1+r,n)-1);
 }
 
 function calculate(){
-  const income = +income.value / 12;
-  const debts = +debts.value;
-  const down = +down.value;
-  const rate = +rate.value / 100 / 12;
-  const years = +years.value * 12;
-  const tax = +tax.value;
-  const ins = +insurance.value;
+  const inc = +income.value/12;
+  const deb = +debts.value;
+  const downPay = +down.value;
+  const r = +rate.value/100/12;
+  const n = +years.value*12;
+  const taxM = +tax.value;
+  const insM = +insurance.value;
 
-  const maxDTI = 0.36;
-  const maxHousing = income * 0.28;
-  const available = maxHousing - tax - ins;
+  const maxHousing = inc*0.28;
+  const avail = maxHousing - taxM - insM;
+  if(avail<=0){ decision.innerHTML="Income too low"; return; }
 
-  const loan = available * (1 - Math.pow(1+rate, -years)) / rate;
-  const home = loan + down;
+  currentLoan = avail*(1-Math.pow(1+r,-n))/r;
+  updateOutputs(currentLoan,inc,deb,downPay,avail,r,n);
+  setupSlider(currentLoan,inc,deb,downPay,avail,r,n);
+}
 
-  const totalDebt = debts + available;
-  const dtiVal = (totalDebt / income) * 100;
+function updateOutputs(loan,inc,deb,downPay,avail,r,n){
+  const home = loan+downPay;
+  const dtiVal = ((deb+avail)/inc)*100;
+  homePrice.innerText=fmt(home);
+  loanAmount.innerText=fmt(loan);
+  payment.innerText=fmt(avail+tax.value*1+insurance.value*1);
+  dti.innerText=dtiVal.toFixed(1)+"%";
 
-  homePrice.innerText = fmt(home);
-  loanAmount.innerText = fmt(loan);
-  payment.innerText = fmt(available + tax + ins);
-  dti.innerText = dtiVal.toFixed(1) + "%";
-
-  if(dtiVal < 30){
+  if(dtiVal<=30){
     decision.className="status good";
-    decision.innerText="Excellent affordability — strong approval chance";
-  }else if(dtiVal <= 36){
+    decision.innerText="Excellent approval chance (Prime borrower)";
+  }else if(dtiVal<=36){
     decision.className="status warn";
-    decision.innerText="Acceptable affordability — approval likely";
+    decision.innerText="Likely approval (Standard bank criteria)";
   }else{
     decision.className="status bad";
-    decision.innerText="High risk — consider lower home price";
+    decision.innerText="Low approval chance (DTI too high)";
   }
 
   if(chart)chart.destroy();
-  chart = new Chart(chart,{
+  chart=new Chart(chart,{
     type:"doughnut",
     data:{
       labels:["Mortgage","Other Debts","Remaining Income"],
       datasets:[{
-        data:[available,debts,income-totalDebt],
+        data:[avail,deb,inc-(deb+avail)],
         backgroundColor:["#2563eb","#dc2626","#16a34a"]
       }]
     }
   });
 }
 
+function setupSlider(maxLoan,inc,deb,downPay,avail,r,n){
+  sliderBox.classList.remove("hidden");
+  priceSlider.min=Math.round(maxLoan*0.5);
+  priceSlider.max=Math.round(maxLoan*1.1);
+  priceSlider.value=maxLoan;
+  sliderValue.innerText="Home Price: "+fmt(maxLoan+downPay);
+
+  priceSlider.oninput=()=>{
+    const loan=+priceSlider.value;
+    sliderValue.innerText="Home Price: "+fmt(loan+downPay);
+    updateOutputs(loan,inc,deb,downPay,
+      emiCalc(loan,r,n)+0, r,n);
+  };
+}
+
 function clearAll(){
   document.querySelectorAll("input").forEach(i=>i.value="");
   document.querySelectorAll(".stat h3").forEach(e=>e.innerText="—");
   decision.innerText="";
+  sliderBox.classList.add("hidden");
   if(chart)chart.destroy();
 }
 </script>
